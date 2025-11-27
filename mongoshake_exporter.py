@@ -79,8 +79,18 @@ def collect_metrics_for_instance(instance_name, host, port):
                 if 'latency' in ENABLED_CATEGORIES:
                     lsn_unix = repl_data['lsn']['unix']
                     lsn_ack_unix = repl_data['lsn_ack']['unix']
+                    
+                    # [Modified] 抓取延遲：保留原邏輯，這裡反映來源端多久沒資料更新
                     FETCH_DELAY_GAUGE.labels(instance=instance_name).set(now_unix - lsn_unix)
-                    DELAY_GAUGE.labels(instance=instance_name).set(now_unix - lsn_ack_unix)
+                    
+                    # [Modified] 同步延遲：加入判斷邏輯
+                    # 如果 lsn (抓到的) 與 lsn_ack (寫入的) 差距極小(或相等)，代表完全同步
+                    # 此時將延遲設為 0，避免因為 Source 沒資料導致 now_unix 持續增加而產生假延遲
+                    if (lsn_unix - lsn_ack_unix) <= 0:
+                         DELAY_GAUGE.labels(instance=instance_name).set(0)
+                    else:
+                         # 真的有落後，才計算時間差
+                         DELAY_GAUGE.labels(instance=instance_name).set(now_unix - lsn_ack_unix)
                 
                 if 'throughput' in ENABLED_CATEGORIES:
                     LOGS_GET_COUNTER.labels(instance=instance_name).set(repl_data.get('logs_get', 0))
